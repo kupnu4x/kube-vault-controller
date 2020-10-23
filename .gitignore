@@ -1,0 +1,4 @@
+pkg/generated
+pkg/apis/vaultproject/v1/zz_generated.deepcopy.go
+_tmp
+/kube-vault-controller

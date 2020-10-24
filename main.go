@@ -18,7 +18,10 @@ package main
 
 import (
 	"flag"
+	"os"
 	"time"
+
+	vaultapi "github.com/hashicorp/vault/api"
 
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -37,7 +40,45 @@ var (
 	kubeconfig string
 )
 
+func periodicRenewToken(vaultclient *vaultapi.Client){
+	for {
+		_, err := vaultclient.Auth().Token().RenewSelf(0)
+		if err != nil {
+			klog.Infoln("token renew failed")
+		} else {
+			klog.Infoln("token renew success")
+		}
+
+		time.Sleep(time.Hour)
+	}
+}
+
 func main() {
+	var token = os.Getenv("VAULT_TOKEN")
+	var vaultAddr = os.Getenv("VAULT_ADDR")
+	if token == "" || vaultAddr == "" {
+		klog.Fatalln("vault credentials not set")
+	}
+
+	vaultclient, err := vaultapi.NewClient(&vaultapi.Config{
+		Address: vaultAddr,
+	})
+	if err != nil {
+		klog.Fatalln(err)
+	}
+	vaultclient.SetToken(token)
+
+	health, err := vaultclient.Sys().Health()
+	if err != nil {
+		klog.Fatalln(err)
+	}
+	if !health.Initialized || health.Sealed {
+		klog.Fatalln("vault not ready")
+	}
+
+	go periodicRenewToken(vaultclient)
+
+	///
 	klog.InitFlags(nil)
 	flag.Parse()
 
@@ -49,27 +90,29 @@ func main() {
 		klog.Fatalf("Error building kubeconfig: %s", err.Error())
 	}
 
-	kubeClient, err := kubernetes.NewForConfig(cfg)
+	kubeClientset, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		klog.Fatalf("Error building kubernetes clientset: %s", err.Error())
 	}
 
-	exampleClient, err := clientset.NewForConfig(cfg)
+	vaultprojectClientset, err := clientset.NewForConfig(cfg)
 	if err != nil {
-		klog.Fatalf("Error building example clientset: %s", err.Error())
+		klog.Fatalf("Error building vaultproject.io clientset: %s", err.Error())
 	}
 
-	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*60)
-	exampleInformerFactory := informers.NewSharedInformerFactory(exampleClient, time.Second*60)
+	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClientset, time.Second*60)
+	vaultprojectInformerFactory := informers.NewSharedInformerFactory(vaultprojectClientset, time.Second*60)
 
-	controller := NewController(kubeClient, exampleClient,
+	controller := NewController(kubeClientset, vaultprojectClientset,
 		kubeInformerFactory.Core().V1().Secrets(),
-		exampleInformerFactory.Vaultproject().V1().SecretClaims())
+		vaultprojectInformerFactory.Vaultproject().V1().SecretClaims(),
+		vaultclient,
+	)
 
 	// notice that there is no need to run Start methods in a separate goroutine. (i.e. go kubeInformerFactory.Start(stopCh)
 	// Start method is non-blocking and runs all registered informers in a dedicated goroutine.
 	kubeInformerFactory.Start(stopCh)
-	exampleInformerFactory.Start(stopCh)
+	vaultprojectInformerFactory.Start(stopCh)
 
 	if err = controller.Run(8, stopCh); err != nil {
 		klog.Fatalf("Error running controller: %s", err.Error())

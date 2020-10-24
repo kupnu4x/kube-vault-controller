@@ -23,8 +23,18 @@ spec:
               path:
                 type: string
                 pattern: '^.*?\/.*?(\/.*?)?$'
+              kv:
+                type: string
+                enum:
+                - v1
+                - v2
+                default: v2
     additionalPrinterColumns:
     - name: Path
       type: string
       description: Path in vault to get secret data
       jsonPath: .spec.path
+    - name: Kv
+      type: string
+      description: Kv storage version 1 or 2
+      jsonPath: .spec.kv

@@ -1,7 +1,0 @@
-apiVersion: vaultproject.io/v1
-kind: SecretClaim
-metadata:
-  name: mysecret
-  namespace: kube-system
-spec:
-  path: prod/kube-system/aga

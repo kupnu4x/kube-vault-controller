@@ -34,6 +34,7 @@ type SecretClaim struct {
 // SecretClaimSpec is the spec for a SecretClaim resource
 type SecretClaimSpec struct {
 	Path string `json:"path"`
+	Kv   string `json:"kv"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

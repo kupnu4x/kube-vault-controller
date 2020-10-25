@@ -1,0 +1,3 @@
+{{- if .Values.createCRD -}}
+{{ .Files.Get "crd/crd.yaml" }}
+{{- end }}

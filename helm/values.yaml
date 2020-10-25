@@ -1,0 +1,9 @@
+name: kube-vault-controller
+
+image:
+  repository: kupnu4x/kube-vault-controller
+
+vaultAddr: http://vault.vault:8200/
+vaultToken: ""
+
+createCRD: true

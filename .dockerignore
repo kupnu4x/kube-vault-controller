@@ -1,0 +1,9 @@
+.dockerignore
+.git
+.gitignore
+.idea
+BUILD.md
+Dockerfile
+codegen
+kube-vault-controller
+yamls

@@ -1,0 +1,18 @@
+---
+apiVersion: vaultproject.io/v1
+kind: SecretClaim
+metadata:
+  name: some-secret1
+  namespace: default
+spec:
+  path: kv1/prod/calc
+  kv: v1
+---
+apiVersion: vaultproject.io/v1
+kind: SecretClaim
+metadata:
+  name: some-secret2
+  namespace: default
+spec:
+  path: kv2/sandbox/consent
+  kv: v2

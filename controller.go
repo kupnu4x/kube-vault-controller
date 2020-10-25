@@ -49,18 +49,10 @@ import (
 const controllerAgentName = "kube-vault-controller"
 
 const (
-	// SuccessSynced is used as part of the Event 'reason' when a SecretClaim is synced
-	SuccessSynced = "Synced"
-	// ErrResourceExists is used as part of the Event 'reason' when a SecretClaim fails
-	// to sync due to a Secret of the same name already existing.
-	ErrResourceExists = "ErrResourceExists"
-
-	// MessageSecretExists is the message used for Events when a resource
-	// fails to sync due to a Secret already existing
-	MessageSecretExists = "Secret %q already exists and is not managed by SecretClaim"
-	// MessageSecretClaimSynced is the message used for an Event fired when a SecretClaim
-	// is synced successfully
-	MessageSecretClaimSynced = "SecretClaim synced successfully"
+	SecretCreated = "SecretCreated"
+	SecretUpdated = "SecretUpdated"
+	ErrSecretExists = "ErrSecretExists"
+	ErrVaultRetrieve = "ErrVaultRetrieve"
 )
 
 // Controller is the controller implementation for SecretClaim resources
@@ -226,12 +218,12 @@ func (c *Controller) processNextWorkItem() bool {
 		if err := c.syncHandler(key); err != nil {
 			// Put the item back on the workqueue to handle any transient errors.
 			c.workqueue.AddRateLimited(key)
-			return fmt.Errorf("error syncing '%s': %s, requeuing", key, err.Error())
+			return fmt.Errorf("error processing '%s': %s, requeuing", key, err.Error())
 		}
 		// Finally, if no error occurs we Forget this item so it does not
 		// get queued again until another change happens.
 		c.workqueue.Forget(obj)
-		klog.Infof("Successfully synced '%s'", key)
+		klog.Infof("successfully processed '%s'", key)
 		return nil
 	}(obj)
 
@@ -252,10 +244,19 @@ func (c *Controller) getVaultSecret(kv string,path string) (map[string]string, e
 	}
 	secret, err := c.vaultclient.Logical().Read(path)
 	if err != nil {
+		if resperr,ok := err.(*vaultapi.ResponseError); ok {
+			if resperr.RawError{
+				return nil, fmt.Errorf("vault error %d: %s",resperr.StatusCode,strings.Join(resperr.Errors,"\n"))
+			} else if resperr.StatusCode == 403 {
+				return nil, fmt.Errorf("permission denied")
+			} else if resperr.StatusCode == 503 && len(resperr.Errors) > 0 {
+				return nil, fmt.Errorf(resperr.Errors[0])
+			}
+		}
 		return nil, err
 	}
 	if secret == nil {
-		return nil, fmt.Errorf("wrong secret")
+		return nil, fmt.Errorf("wrong secret or kv version")
 	}
 
 	ifaceData := make(map[string]interface{})
@@ -263,7 +264,7 @@ func (c *Controller) getVaultSecret(kv string,path string) (map[string]string, e
 		ifaceData = secret.Data
 	} else if kv == "v2" {
 		if secret.Data["data"] == nil {
-			return nil, fmt.Errorf("wrong secret")
+			return nil, fmt.Errorf("wrong secret or kv version")
 		}
 		ifaceData = secret.Data["data"].(map[string]interface{})
 	}
@@ -308,6 +309,10 @@ func (c *Controller) syncHandler(key string) error {
 		utilruntime.HandleError(fmt.Errorf("%s: path must be specified", key))
 		return nil
 	}
+	if kv != "v1" && kv != "v2" {
+		utilruntime.HandleError(fmt.Errorf("%s: wrong kv version", key))
+		return nil
+	}
 
 	// Get the secret with the name specified in SecretClaim.spec
 	secret, err := c.secretsLister.Secrets(secretClaim.Namespace).Get(secretClaim.Name)
@@ -315,7 +320,13 @@ func (c *Controller) syncHandler(key string) error {
 	if errors.IsNotFound(err) {
 		vaultSecretData, err := c.getVaultSecret(kv, path)
 		if err != nil {
-			klog.Errorln(err)
+			c.recorder.Event(
+				secretClaim,
+				corev1.EventTypeWarning,
+				ErrVaultRetrieve,
+				err.Error(),
+			)
+			//klog.Errorln(err)
 			return err
 		}
 		secret, err = c.kubeclientset.CoreV1().Secrets(secretClaim.Namespace).Create(
@@ -326,6 +337,18 @@ func (c *Controller) syncHandler(key string) error {
 		if err != nil {
 			return err
 		}
+
+		msg := fmt.Sprintf("Secret %s/%s created",
+			secret.Namespace,
+			secret.Name,
+		)
+		c.recorder.Event(
+			secretClaim,
+			corev1.EventTypeNormal,
+			SecretCreated,
+			msg,
+		)
+		return nil
 	} else if err != nil {
 		// If an error occurs during Get/Create, we'll requeue the item so we can
 		// attempt processing again later. This could have been caused by a
@@ -337,18 +360,33 @@ func (c *Controller) syncHandler(key string) error {
 		// If the Secret is not controlled by this SecretClaim resource, we should log
 		// a warning to the event recorder and return error msg.
 		if !metav1.IsControlledBy(secret, secretClaim) {
-			msg := fmt.Sprintf(MessageSecretExists, secret.Name)
-			c.recorder.Event(secretClaim, corev1.EventTypeWarning, ErrResourceExists, msg)
+			msg := fmt.Sprintf("Secret %s/%s already exists and is not managed by SecretClaim",
+				secret.Namespace,
+				secret.Name,
+			)
+			c.recorder.Event(
+				secretClaim,
+				corev1.EventTypeWarning,
+				ErrSecretExists,
+				msg,
+			)
 			return fmt.Errorf(msg)
 		}
 
 		// Periodical renew secret data
 		vaultSecretData, err := c.getVaultSecret(kv, path)
 		if err != nil {
-			klog.Errorln(err)
+			c.recorder.Event(
+				secretClaim,
+				corev1.EventTypeWarning,
+				ErrVaultRetrieve,
+				err.Error(),
+			)
+			//klog.Errorln(err)
 			return err
 		}
-		secret, err = c.kubeclientset.CoreV1().Secrets(secretClaim.Namespace).Update(
+		oldResourceVersion := secret.ResourceVersion
+		secret, err := c.kubeclientset.CoreV1().Secrets(secretClaim.Namespace).Update(
 			context.TODO(),
 			newSecret(secretClaim, vaultSecretData),
 			metav1.UpdateOptions{},
@@ -360,10 +398,22 @@ func (c *Controller) syncHandler(key string) error {
 		if err != nil {
 			return err
 		}
-	}
 
-	c.recorder.Event(secretClaim, corev1.EventTypeNormal, SuccessSynced, MessageSecretClaimSynced)
-	return nil
+		if secret.ResourceVersion != oldResourceVersion {
+			msg := fmt.Sprintf("Secret %s/%s updated",
+				secret.Namespace,
+				secret.Name,
+			)
+			c.recorder.Event(
+				secretClaim,
+				corev1.EventTypeNormal,
+				SecretUpdated,
+				msg,
+			)
+		}
+
+		return nil
+	}
 }
 
 // enqueueSecretClaim takes a SecretClaim resource and converts it into a namespace/name

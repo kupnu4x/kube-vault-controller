@@ -6,6 +6,7 @@ spec:
   group: vaultproject.io
   names:
     kind: SecretClaim
+    listKind: SecretClaimList
     plural: secretclaims
     singular: secretclaim
   scope: Namespaced

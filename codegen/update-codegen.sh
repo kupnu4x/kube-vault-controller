@@ -19,7 +19,7 @@ set -o nounset
 set -o pipefail
 
 SCRIPT_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
-CODEGEN_PKG=${CODEGEN_PKG:-$(cd "${SCRIPT_ROOT}"; ls -d -1 ./vendor/k8s.io/code-generator 2>/dev/null || echo ../code-generator)}
+CODEGEN_PKG=${CODEGEN_PKG}
 
 # generate the code with:
 # --output-base    because this script should also be able to run inside the vendor dir of
@@ -28,7 +28,5 @@ CODEGEN_PKG=${CODEGEN_PKG:-$(cd "${SCRIPT_ROOT}"; ls -d -1 ./vendor/k8s.io/code-
 bash "${CODEGEN_PKG}"/generate-groups.sh "deepcopy,client,informer,lister" \
   kube-vault-controller/pkg/generated kube-vault-controller/pkg/apis \
   vaultproject:v1 \
-  --output-base "${SCRIPT_ROOT}/.."
-
-# To use your own boilerplate text append:
-#   --go-header-file "${SCRIPT_ROOT}"/codegen/custom-boilerplate.go.txt
+  --output-base "${SCRIPT_ROOT}/.." \
+  --go-header-file "${CODEGEN_PKG}/hack/boilerplate.go.txt"

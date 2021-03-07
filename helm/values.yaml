@@ -2,6 +2,8 @@ name: kube-vault-controller
 
 image:
   repository: kupnu4x/kube-vault-controller
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
 
 vaultAddr: http://vault.vault:8200/
 vaultToken: ""

@@ -25,9 +25,9 @@ create policy from file:
 ```shell script
 vault write sys/policy/kube-vault-contoller policy=@policy.hcl
 ```
-create token for policy:
+create periodic renewable token for this policy:
 ```shell script
-vault token create -policy=kube-vault-contoller -display-name=kube-vault-contoller
+vault token create -policy=kube-vault-contoller -display-name=kube-vault-contoller -period=720h -renewable
 ```
 then install kube-vault-controller
 ```shell script
@@ -39,7 +39,9 @@ helm upgrade --install \
 (token will be auto renewed via kube-vault-controller)
 
 ## install crd manually
+Usually, CustomResourceDefinitions are installed by helm chart and you don't need to install them manually.  
+If anyway for some reason you want install them manually:
 ```shell script
-kubectl apply -f https://raw.githubusercontent.com/kupnu4x/kube-vault-controller/1.0.0/helm/crd/crd.yaml
+kubectl apply -f https://raw.githubusercontent.com/kupnu4x/kube-vault-controller/1.0.1/helm/crd/crd.yaml
 ```
 then install helm with `createCRD: false`

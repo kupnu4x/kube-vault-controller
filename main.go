@@ -20,6 +20,7 @@ import (
 	"flag"
 	"os"
 	"time"
+	"strings"
 
 	vaultapi "github.com/hashicorp/vault/api"
 
@@ -42,11 +43,15 @@ var (
 
 func periodicRenewToken(vaultclient *vaultapi.Client){
 	for {
-		_, err := vaultclient.Auth().Token().RenewSelf(0)
+		ret, err := vaultclient.Auth().Token().RenewSelf(0)
 		if err != nil {
 			klog.Infoln("token renew failed")
 		} else {
-			klog.Infoln("token renew success")
+			if len(ret.Warnings) > 0 {
+				klog.Infof("token renew success (%s)", strings.Join(ret.Warnings, "\n"))
+			} else {
+				klog.Infoln("token renew success")
+			}
 		}
 
 		time.Sleep(time.Hour)

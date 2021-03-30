@@ -39,3 +39,6 @@ spec:
       type: string
       description: Kv storage version 1 or 2
       jsonPath: .spec.kv
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp

@@ -4,7 +4,6 @@
 .idea
 BUILD.md
 Dockerfile
-codegen
 helm
 kube-vault-controller
 README.md

@@ -49,9 +49,9 @@ import (
 const controllerAgentName = "kube-vault-controller"
 
 const (
-	SecretCreated = "SecretCreated"
-	SecretUpdated = "SecretUpdated"
-	ErrSecretExists = "ErrSecretExists"
+	SecretCreated    = "SecretCreated"
+	SecretUpdated    = "SecretUpdated"
+	ErrSecretExists  = "ErrSecretExists"
 	ErrVaultRetrieve = "ErrVaultRetrieve"
 )
 
@@ -235,18 +235,18 @@ func (c *Controller) processNextWorkItem() bool {
 	return true
 }
 
-func (c *Controller) getVaultSecret(kv string,path string) (map[string]string, error) {
+func (c *Controller) getVaultSecret(kv string, path string) (map[string]string, error) {
 	if kv != "v1" && kv != "v2" {
 		return nil, fmt.Errorf("wrong kv version")
 	}
 	if kv == "v2" {
-		path = strings.Replace(path,"/","/data/",1)
+		path = strings.Replace(path, "/", "/data/", 1)
 	}
 	secret, err := c.vaultclient.Logical().Read(path)
 	if err != nil {
-		if resperr,ok := err.(*vaultapi.ResponseError); ok {
-			if resperr.RawError{
-				return nil, fmt.Errorf("vault error %d: %s",resperr.StatusCode,strings.Join(resperr.Errors,"\n"))
+		if resperr, ok := err.(*vaultapi.ResponseError); ok {
+			if resperr.RawError {
+				return nil, fmt.Errorf("vault error %d: %s", resperr.StatusCode, strings.Join(resperr.Errors, "\n"))
 			} else if resperr.StatusCode == 403 {
 				return nil, fmt.Errorf("permission denied")
 			} else if resperr.StatusCode == 503 && len(resperr.Errors) > 0 {
@@ -306,10 +306,12 @@ func (c *Controller) syncHandler(key string) error {
 		// We choose to absorb the error here as the worker would requeue the
 		// resource otherwise. Instead, the next time the resource is updated
 		// the resource will be queued again.
+		c.updateSecretClaimStatus(secretClaim, "Error", false, false)
 		utilruntime.HandleError(fmt.Errorf("%s: path must be specified", key))
 		return nil
 	}
 	if kv != "v1" && kv != "v2" {
+		c.updateSecretClaimStatus(secretClaim, "Error", false, false)
 		utilruntime.HandleError(fmt.Errorf("%s: wrong kv version", key))
 		return nil
 	}
@@ -326,6 +328,7 @@ func (c *Controller) syncHandler(key string) error {
 				ErrVaultRetrieve,
 				err.Error(),
 			)
+            err := c.updateSecretClaimStatus(secretClaim, "Error", false, false)
 			//klog.Errorln(err)
 			return err
 		}
@@ -335,9 +338,11 @@ func (c *Controller) syncHandler(key string) error {
 			metav1.CreateOptions{},
 		)
 		if err != nil {
+			c.updateSecretClaimStatus(secretClaim, "Error", false, false)
 			return err
 		}
 
+		c.updateSecretClaimStatus(secretClaim, "InSync", true, true)
 		msg := fmt.Sprintf("Secret %s/%s created",
 			secret.Namespace,
 			secret.Name,
@@ -353,6 +358,7 @@ func (c *Controller) syncHandler(key string) error {
 		// If an error occurs during Get/Create, we'll requeue the item so we can
 		// attempt processing again later. This could have been caused by a
 		// temporary network failure, or any other transient reason.
+		c.updateSecretClaimStatus(secretClaim, "Error", false, false)
 		return err
 	} else {
 		//secret found
@@ -360,6 +366,7 @@ func (c *Controller) syncHandler(key string) error {
 		// If the Secret is not controlled by this SecretClaim resource, we should log
 		// a warning to the event recorder and return error msg.
 		if !metav1.IsControlledBy(secret, secretClaim) {
+			c.updateSecretClaimStatus(secretClaim, "Error", false, false)
 			msg := fmt.Sprintf("Secret %s/%s already exists and is not managed by SecretClaim",
 				secret.Namespace,
 				secret.Name,
@@ -376,6 +383,7 @@ func (c *Controller) syncHandler(key string) error {
 		// Periodical renew secret data
 		vaultSecretData, err := c.getVaultSecret(kv, path)
 		if err != nil {
+			c.updateSecretClaimStatus(secretClaim, "Error", false, false)
 			c.recorder.Event(
 				secretClaim,
 				corev1.EventTypeWarning,
@@ -396,6 +404,7 @@ func (c *Controller) syncHandler(key string) error {
 		// attempt processing again later. This could have been caused by a
 		// temporary network failure, or any other transient reason.
 		if err != nil {
+			c.updateSecretClaimStatus(secretClaim, "Error", false, false)
 			return err
 		}
 
@@ -411,6 +420,7 @@ func (c *Controller) syncHandler(key string) error {
 				msg,
 			)
 		}
+		c.updateSecretClaimStatus(secretClaim, "InSync", true, secret.ResourceVersion != oldResourceVersion)
 
 		return nil
 	}
@@ -481,7 +491,20 @@ func newSecret(secretClaim *vaultprojectv1.SecretClaim, vaultSecretData map[stri
 				*metav1.NewControllerRef(secretClaim, vaultprojectv1.SchemeGroupVersion.WithKind("SecretClaim")),
 			},
 		},
-		Type: "Opaque",
+		Type:       "Opaque",
 		StringData: vaultSecretData,
 	}
+}
+
+func (c *Controller) updateSecretClaimStatus(secretClaim *vaultprojectv1.SecretClaim, state string, updateLastSyncTime bool, updateLastChangedTime bool) error {
+	secretClaimCopy := secretClaim.DeepCopy()
+	secretClaimCopy.Status.State = state
+ 	if updateLastSyncTime {
+ 		secretClaimCopy.Status.LastSyncTime = time.Now().UTC().Format(time.RFC3339)
+ 	}
+ 	if updateLastChangedTime {
+ 		secretClaimCopy.Status.LastChangedTime = time.Now().UTC().Format(time.RFC3339)
+ 	}
+	_, err := c.vaultprojectclientset.VaultprojectV1().SecretClaims(secretClaim.Namespace).UpdateStatus(context.TODO(), secretClaimCopy, metav1.UpdateOptions{})
+	return err
 }

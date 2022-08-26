@@ -29,12 +29,19 @@ type SecretClaim struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec   SecretClaimSpec   `json:"spec"`
+	Status SecretClaimStatus `json:"status"`
 }
 
 // SecretClaimSpec is the spec for a SecretClaim resource
 type SecretClaimSpec struct {
 	Path string `json:"path"`
 	Kv   string `json:"kv"`
+}
+
+type SecretClaimStatus struct {
+    State           string `json:"state"`
+    LastSyncTime    string `json:"lastSyncTime,omitempty"`
+    LastChangedTime string `json:"lastChangedTime,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

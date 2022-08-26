@@ -18,6 +18,12 @@ rules:
       - watch
       - get
   - apiGroups:
+      - vaultproject.io
+    resources:
+      - secretclaims/status
+    verbs:
+      - update
+  - apiGroups:
       - ""
     resources:
       - secrets

@@ -14,7 +14,7 @@ spec:
       serviceAccountName: {{ .Values.name }}
       containers:
         - name: {{ .Values.name }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           env:
             - name: VAULT_ADDR
               value: {{ .Values.vaultAddr | quote }}

@@ -32,7 +32,7 @@ vault token create -policy=kube-vault-contoller -display-name=kube-vault-contoll
 then install kube-vault-controller
 ```shell script
 helm upgrade --install \
-    kube-vault-controller ./helm -n kube-system \
+    kube-vault-controller oci://ghcr.io/kupnu4x/helm/kube-vault-controller:1.1.0 -n kube-system \
     --set vaultAddr=https://vault.addr:port/ \
     --set vaultToken=<token>
 ```

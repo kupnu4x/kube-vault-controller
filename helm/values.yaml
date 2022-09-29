@@ -8,3 +8,6 @@ vaultAddr: http://vault.vault:8200/
 vaultToken: ""
 
 createCRD: true
+
+nodeSelector: {}
+tolerations: []

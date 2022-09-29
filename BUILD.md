@@ -19,8 +19,7 @@ docker push quay.io/kupnu4x/kube-vault-controller:${TAG}
 
 #helm chart update
 ```shell script
-export HELM_EXPERIMENTAL_OCI=1
 TAG=1.1.0
-helm chart save helm/ ghcr.io/kupnu4x/helm/kube-vault-controller:${TAG}
-helm chart push ghcr.io/kupnu4x/helm/kube-vault-controller:${TAG}
+helm package ./helm/
+helm push kube-vault-controller-${TAG}.tgz oci://ghcr.io/kupnu4x/helm/
 ```

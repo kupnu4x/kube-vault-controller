@@ -23,11 +23,11 @@ path "kv2/data/*" {
 ```
 create policy from file:
 ```shell script
-vault write sys/policy/kube-vault-contoller policy=@policy.hcl
+vault write sys/policy/kube-vault-controller policy=@policy.hcl
 ```
 create periodic renewable token for this policy:
 ```shell script
-vault token create -policy=kube-vault-contoller -display-name=kube-vault-contoller -period=720h -renewable
+vault token create -policy=kube-vault-controller -display-name=kube-vault-controller -period=720h -renewable
 ```
 then install kube-vault-controller
 ```shell script

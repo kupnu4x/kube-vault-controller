@@ -1,5 +1,4 @@
 .dockerignore
-.git
 .gitignore
 .idea
 BUILD.md

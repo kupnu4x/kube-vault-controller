@@ -21,12 +21,21 @@ set -o pipefail
 SCRIPT_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
 CODEGEN_PKG=${CODEGEN_PKG}
 
+source "${CODEGEN_PKG}/kube_codegen.sh"
+
 # generate the code with:
 # --output-base    because this script should also be able to run inside the vendor dir of
 #                  k8s.io/kubernetes. The output-base is needed for the generators to output into the vendor dir
 #                  instead of the $GOPATH directly. For normal projects this can be dropped.
-bash "${CODEGEN_PKG}"/generate-groups.sh "deepcopy,client,informer,lister" \
-  kube-vault-controller/pkg/generated kube-vault-controller/pkg/apis \
-  vaultproject:v1 \
-  --output-base "${SCRIPT_ROOT}/.." \
-  --go-header-file "${CODEGEN_PKG}/hack/boilerplate.go.txt"
+
+kube::codegen::gen_helpers \
+    --input-pkg-root kube-vault-controller/pkg/apis \
+    --output-base "$(dirname "${BASH_SOURCE[0]}")/../.." \
+    --boilerplate "${SCRIPT_ROOT}/codegen/boilerplate.go.txt"
+
+kube::codegen::gen_client \
+    --with-watch \
+    --input-pkg-root kube-vault-controller/pkg/apis \
+    --output-pkg-root kube-vault-controller/pkg/generated \
+    --output-base "$(dirname "${BASH_SOURCE[0]}")/../.." \
+    --boilerplate "${SCRIPT_ROOT}/codegen/boilerplate.go.txt"

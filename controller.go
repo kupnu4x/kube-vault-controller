@@ -82,17 +82,20 @@ type Controller struct {
 
 // NewController returns a new controller
 func NewController(
+	ctx context.Context,
 	kubeclientset kubernetes.Interface,
 	vaultprojectclientset vaultprojectclientset.Interface,
 	secretInformer coreinformers.SecretInformer,
 	secretClaimInformer vaultprojectinformers.SecretClaimInformer,
 	vaultclient *vaultapi.Client) *Controller {
+	logger := klog.FromContext(ctx)
 
 	// Create event broadcaster
 	// Add controller types to the default Kubernetes Scheme so Events can be
 	// logged for controller types.
 	utilruntime.Must(vaultprojectscheme.AddToScheme(scheme.Scheme))
-	klog.V(4).Info("Creating event broadcaster")
+	logger.V(4).Info("Creating event broadcaster")
+
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartStructuredLogging(0)
 	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: kubeclientset.CoreV1().Events("")})
@@ -110,7 +113,7 @@ func NewController(
 		vaultclient:           vaultclient,
 	}
 
-	klog.Info("Setting up event handlers")
+	logger.Info("Setting up event handlers")
 	// Set up an event handler for when SecretClaim resources change
 	secretClaimInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: controller.enqueueSecretClaim,
@@ -146,28 +149,30 @@ func NewController(
 // as syncing informer caches and starting workers. It will block until stopCh
 // is closed, at which point it will shutdown the workqueue and wait for
 // workers to finish processing their current work items.
-func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
+func (c *Controller) Run(ctx context.Context, workers int) error {
 	defer utilruntime.HandleCrash()
 	defer c.workqueue.ShutDown()
+	logger := klog.FromContext(ctx)
 
 	// Start the informer factories to begin populating the informer caches
-	klog.Info("Starting SecretClaim controller")
+	//logger.Info("Starting SecretClaim controller")
 
 	// Wait for the caches to be synced before starting workers
-	klog.Info("Waiting for informer caches to sync")
-	if ok := cache.WaitForCacheSync(stopCh, c.secretsSynced, c.secretClaimsSynced); !ok {
+	logger.Info("Waiting for informer caches to sync")
+
+	if ok := cache.WaitForCacheSync(ctx.Done(), c.secretsSynced, c.secretClaimsSynced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
 
-	klog.Info("Starting workers")
+	logger.Info("Starting workers", "count", workers)
 	// Launch two workers to process SecretClaim resources
-	for i := 0; i < threadiness; i++ {
-		go wait.Until(c.runWorker, time.Second, stopCh)
+	for i := 0; i < workers; i++ {
+		go wait.UntilWithContext(ctx, c.runWorker, time.Second)
 	}
 
-	klog.Info("Started workers")
-	<-stopCh
-	klog.Info("Shutting down workers")
+	logger.Info("Started workers")
+	<-ctx.Done()
+	logger.Info("Shutting down workers")
 
 	return nil
 }
@@ -175,15 +180,16 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 // runWorker is a long-running function that will continually call the
 // processNextWorkItem function in order to read and process a message on the
 // workqueue.
-func (c *Controller) runWorker() {
-	for c.processNextWorkItem() {
+func (c *Controller) runWorker(ctx context.Context) {
+	for c.processNextWorkItem(ctx) {
 	}
 }
 
 // processNextWorkItem will read a single work item off the workqueue and
 // attempt to process it, by calling the syncHandler.
-func (c *Controller) processNextWorkItem() bool {
+func (c *Controller) processNextWorkItem(ctx context.Context) bool {
 	obj, shutdown := c.workqueue.Get()
+	logger := klog.FromContext(ctx)
 
 	if shutdown {
 		return false
@@ -215,15 +221,15 @@ func (c *Controller) processNextWorkItem() bool {
 		}
 		// Run the syncHandler, passing it the namespace/name string of the
 		// SecretClaim resource to be synced.
-		if err := c.syncHandler(key); err != nil {
+		if err := c.syncHandler(ctx, key); err != nil {
 			// Put the item back on the workqueue to handle any transient errors.
 			c.workqueue.AddRateLimited(key)
-			return fmt.Errorf("error processing '%s': %s, requeuing", key, err.Error())
+			return fmt.Errorf("error syncing '%s': %s, requeuing", key, err.Error())
 		}
 		// Finally, if no error occurs we Forget this item so it does not
 		// get queued again until another change happens.
 		c.workqueue.Forget(obj)
-		klog.Infof("successfully processed '%s'", key)
+		logger.Info("Synced", "secretClaimName", key)
 		return nil
 	}(obj)
 
@@ -279,8 +285,10 @@ func (c *Controller) getVaultSecret(kv string, path string) (map[string]string, 
 // syncHandler compares the actual state with the desired, and attempts to
 // converge the two. It then updates the Status block of the SecretClaim resource
 // with the current status of the resource.
-func (c *Controller) syncHandler(key string) error {
+func (c *Controller) syncHandler(ctx context.Context, key string) error {
 	// Convert the namespace/name string into a distinct namespace and name
+	//logger := klog.LoggerWithValues(klog.FromContext(ctx), "resourceName", key)
+
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
@@ -328,7 +336,7 @@ func (c *Controller) syncHandler(key string) error {
 				ErrVaultRetrieve,
 				err.Error(),
 			)
-            err := c.updateSecretClaimStatus(secretClaim, "Error", false, false)
+			err := c.updateSecretClaimStatus(secretClaim, "Error", false, false)
 			//klog.Errorln(err)
 			return err
 		}
@@ -447,6 +455,7 @@ func (c *Controller) enqueueSecretClaim(obj interface{}) {
 func (c *Controller) handleObject(obj interface{}) {
 	var object metav1.Object
 	var ok bool
+	logger := klog.FromContext(context.Background())
 	if object, ok = obj.(metav1.Object); !ok {
 		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
 		if !ok {
@@ -458,9 +467,9 @@ func (c *Controller) handleObject(obj interface{}) {
 			utilruntime.HandleError(fmt.Errorf("error decoding object tombstone, invalid type"))
 			return
 		}
-		klog.V(4).Infof("Recovered deleted object '%s' from tombstone", object.GetName())
+		logger.V(4).Info("Recovered deleted object", "resourceName", object.GetName())
 	}
-	klog.V(4).Infof("Processing object: %s", object.GetName())
+	logger.V(4).Info("Processing object", "object", klog.KObj(object))
 	if ownerRef := metav1.GetControllerOf(object); ownerRef != nil {
 		// If this object is not owned by a SecretClaim, we should not do anything more
 		// with it.
@@ -470,7 +479,7 @@ func (c *Controller) handleObject(obj interface{}) {
 
 		secretClaim, err := c.secretClaimsLister.SecretClaims(object.GetNamespace()).Get(ownerRef.Name)
 		if err != nil {
-			klog.V(4).Infof("ignoring orphaned object '%s' of secretClaim '%s'", object.GetSelfLink(), ownerRef.Name)
+			logger.V(4).Info("Ignore orphaned object", "object", klog.KObj(object), "secretClaim", ownerRef.Name)
 			return
 		}
 
@@ -499,12 +508,12 @@ func newSecret(secretClaim *vaultprojectv1.SecretClaim, vaultSecretData map[stri
 func (c *Controller) updateSecretClaimStatus(secretClaim *vaultprojectv1.SecretClaim, state string, updateLastSyncTime bool, updateLastChangedTime bool) error {
 	secretClaimCopy := secretClaim.DeepCopy()
 	secretClaimCopy.Status.State = state
- 	if updateLastSyncTime {
- 		secretClaimCopy.Status.LastSyncTime = time.Now().UTC().Format(time.RFC3339)
- 	}
- 	if updateLastChangedTime {
- 		secretClaimCopy.Status.LastChangedTime = time.Now().UTC().Format(time.RFC3339)
- 	}
+	if updateLastSyncTime {
+		secretClaimCopy.Status.LastSyncTime = time.Now().UTC().Format(time.RFC3339)
+	}
+	if updateLastChangedTime {
+		secretClaimCopy.Status.LastChangedTime = time.Now().UTC().Format(time.RFC3339)
+	}
 	_, err := c.vaultprojectclientset.VaultprojectV1().SecretClaims(secretClaim.Namespace).UpdateStatus(context.TODO(), secretClaimCopy, metav1.UpdateOptions{})
 	return err
 }

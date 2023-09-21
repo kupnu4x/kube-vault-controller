@@ -19,8 +19,8 @@ package main
 import (
 	"flag"
 	"os"
-	"time"
 	"strings"
+	"time"
 
 	vaultapi "github.com/hashicorp/vault/api"
 
@@ -41,7 +41,7 @@ var (
 	kubeconfig string
 )
 
-func periodicRenewToken(vaultclient *vaultapi.Client){
+func periodicRenewToken(vaultclient *vaultapi.Client) {
 	for {
 		ret, err := vaultclient.Auth().Token().RenewSelf(0)
 		if err != nil {
@@ -59,6 +59,12 @@ func periodicRenewToken(vaultclient *vaultapi.Client){
 }
 
 func main() {
+	klog.InitFlags(nil)
+	flag.Parse()
+
+	ctx := signals.SetupSignalHandler()
+	logger := klog.FromContext(ctx)
+
 	var token = os.Getenv("VAULT_TOKEN")
 	var vaultAddr = os.Getenv("VAULT_ADDR")
 	if token == "" || vaultAddr == "" {
@@ -69,27 +75,23 @@ func main() {
 		Address: vaultAddr,
 	})
 	if err != nil {
-		klog.Fatalln(err)
+		logger.Error(err, "Error creating vault client")
+		//klog.Fatalln(err)
 	}
 	vaultclient.SetToken(token)
 
 	health, err := vaultclient.Sys().Health()
 	if err != nil {
-		klog.Fatalln(err)
-	}
-	if !health.Initialized || health.Sealed {
-		klog.Fatalln("vault not ready")
+		logger.Error(err, "Error checking vault health")
+		//klog.Fatalln(err)
+	} else if !health.Initialized || health.Sealed {
+		logger.Info("Vault not ready(not initialized or sealed)")
+		//klog.Fatalln("vault not ready")
 	}
 
 	go periodicRenewToken(vaultclient)
 
 	///
-	klog.InitFlags(nil)
-	flag.Parse()
-
-	// set up signals so we handle the first shutdown signal gracefully
-	stopCh := signals.SetupSignalHandler()
-
 	cfg, err := clientcmd.BuildConfigFromFlags(masterURL, kubeconfig)
 	if err != nil {
 		klog.Fatalf("Error building kubeconfig: %s", err.Error())
@@ -108,7 +110,7 @@ func main() {
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClientset, time.Second*60)
 	vaultprojectInformerFactory := informers.NewSharedInformerFactory(vaultprojectClientset, time.Second*60)
 
-	controller := NewController(kubeClientset, vaultprojectClientset,
+	controller := NewController(ctx, kubeClientset, vaultprojectClientset,
 		kubeInformerFactory.Core().V1().Secrets(),
 		vaultprojectInformerFactory.Vaultproject().V1().SecretClaims(),
 		vaultclient,
@@ -116,10 +118,10 @@ func main() {
 
 	// notice that there is no need to run Start methods in a separate goroutine. (i.e. go kubeInformerFactory.Start(stopCh)
 	// Start method is non-blocking and runs all registered informers in a dedicated goroutine.
-	kubeInformerFactory.Start(stopCh)
-	vaultprojectInformerFactory.Start(stopCh)
+	kubeInformerFactory.Start(ctx.Done())
+	vaultprojectInformerFactory.Start(ctx.Done())
 
-	if err = controller.Run(8, stopCh); err != nil {
+	if err = controller.Run(ctx, 2); err != nil {
 		klog.Fatalf("Error running controller: %s", err.Error())
 	}
 }

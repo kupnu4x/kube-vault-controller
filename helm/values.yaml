@@ -2,7 +2,7 @@ name: kube-vault-controller
 
 image:
   repository: kupnu4x/kube-vault-controller
-  tag: 1.1.0
+  tag: 1.2.0
 
 vaultAddr: http://vault.vault:8200/
 vaultToken: ""

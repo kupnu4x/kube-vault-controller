@@ -39,9 +39,9 @@ type SecretClaimSpec struct {
 }
 
 type SecretClaimStatus struct {
-    State           string `json:"state"`
-    LastSyncTime    string `json:"lastSyncTime,omitempty"`
-    LastChangedTime string `json:"lastChangedTime,omitempty"`
+	State           string `json:"state"`
+	LastSyncTime    string `json:"lastSyncTime,omitempty"`
+	LastChangedTime string `json:"lastChangedTime,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

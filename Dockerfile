@@ -1,4 +1,4 @@
-FROM golang:1.19.0 as builder
+FROM golang:1.21.1 as builder
 COPY . /kube-vault-controller
 WORKDIR /kube-vault-controller
 RUN git clone https://github.com/kubernetes/code-generator.git
